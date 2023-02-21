@@ -1,0 +1,65 @@
+# Documentation of gene expression level data acquisition from human protein atlas: https://www.proteinatlas.org/
+cd bioinf_isilon/core_bioinformatics_unit/Internal/max_vdl/coreBioinf/kalinchenko/tissueGeneEx/data
+
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000115956.xml   
+mv ENSG00000115956.xml PLEK.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000116237.xml   
+mv ENSG00000116237.xml ICMT.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000173653.xml   
+mv ENSG00000173653.xml RCE1.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000090054.xml   
+mv ENSG00000090054.xml SPTLC1.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000100596.xml   
+mv ENSG00000100596.xml SPTLC2.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000165389.xml   
+mv ENSG00000165389.xml SPTSSA.xml
+
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000159714.xml   
+mv ENSG00000159714.xml ZDHHC1.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000104219.xml   
+mv ENSG00000104219.xml ZDHHC2.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000163812.xml   
+mv ENSG00000163812.xml ZDHHC3.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000136247.xml   
+mv ENSG00000136247.xml ZDHHC4.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000156599.xml   
+mv ENSG00000156599.xml ZDHHC5.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000023041.xml   
+mv ENSG00000023041.xml ZDHHC6.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000153786.xml   
+mv ENSG00000153786.xml ZDHHC7.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000099904.xml   
+mv ENSG00000099904.xml ZDHHC8.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000188706.xml   
+mv ENSG00000188706.xml ZDHHC9.xml
+# 10 not found!
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000188818.xml   
+mv ENSG00000188818.xml ZDHHC11.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000206077.xml   
+mv ENSG00000206077.xml ZDHHC11B.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000160446.xml   
+mv ENSG00000160446.xml ZDHHC12.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000177054.xml   
+mv ENSG00000177054.xml ZDHHC13.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000175048.xml   
+mv ENSG00000175048.xml ZDHHC14.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000102383.xml   
+mv ENSG00000102383.xml ZDHHC15.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000171307.xml   
+mv ENSG00000171307.xml ZDHHC16.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000186908.xml   
+mv ENSG00000186908.xml ZDHHC17.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000204160.xml   
+mv ENSG00000204160.xml ZDHHC18.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000163958.xml   
+mv ENSG00000163958.xml ZDHHC19.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000180776.xml   
+mv ENSG00000180776.xml ZDHHC20.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000175893.xml   
+mv ENSG00000175893.xml ZDHHC21.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000177108.xml   
+mv ENSG00000177108.xml ZDHHC22.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000184307.xml   
+mv ENSG00000184307.xml ZDHHC23.xml
+wget --no-check-certificate https://www.proteinatlas.org/ENSG00000174165.xml   
+mv ENSG00000174165.xml ZDHHC24.xml
