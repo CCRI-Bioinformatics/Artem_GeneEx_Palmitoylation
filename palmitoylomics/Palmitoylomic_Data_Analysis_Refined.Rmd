@@ -1,0 +1,1006 @@
+---
+title: "__Palmitoylomics Data Analysis Refined__"
+author: "Celine Prakash"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: cerulean
+    highlight: kate
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+```{r setup environment, include=TRUE, echo=FALSE, eval=TRUE}
+
+if(!("renv" %in% installed.packages())){remotes::install_github("rstudio/renv")}
+
+#renv::init()
+#renv::activate()
+#renv::snapshot()
+
+#project name
+project_name="palmitoylomics_data_analysis_refined"
+```
+
+
+```{r loading libraries, include=TRUE, echo=FALSE, eval=TRUE}
+# installing libraries if not present
+#if (!"BiocManager" %in% installed.packages()[,"Package"]){
+#  if (!require("BiocManager", quietly = TRUE))
+#      install.packages("BiocManager")
+#   BiocManager::install(version = '3.16')
+#}
+#bioc_packages<-c("DEqMS")
+needed_packages<-c("DT","readr","readxl","rlang","htmltools","ggrepel","janitor","ggfortify","eulerr","pheatmap","devtools","plotly","viridis","tidyverse","devtools")
+#new.packages <- bioc_packages[!(bioc_packages %in% installed.packages()[,"Package"])]
+#if(length(new.packages)) BiocManager::install(new.packages)
+new.packages <- needed_packages[!(needed_packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+devtools::install_github("montilab/hypeR")
+
+# importing key functions
+import::from(magrittr, "%>%")
+import::from(.from=readxl, read_excel)
+import::from(.from=janitor, make_clean_names, remove_empty)
+import::from(.from=stringr, str_detect)
+
+```
+```{r snapshot,echo=FALSE}
+# finish by taking snapshot of libraries
+#renv::snapshot()
+```
+
+```{r downldtables, echo=FALSE}
+
+#downloadable tables
+library(DT)
+create_dt <- function(x){
+ DT::datatable(x,
+  extensions = 'Buttons',
+  options = list(dom = 'Blfrtip',
+                 buttons = c('copy', 'csv', 'excel'),
+                 lengthMenu = list(c(5,10,25,50,-1),
+                                   c(5,10,25,50,"All"))))
+}
+```
+
+```{r functions, include=TRUE, echo=FALSE, eval=TRUE}
+# shorten names by removing suffix
+remove_suffix<-function(string,no_first_elements){
+  return(paste0(head(unlist(strsplit(string,"_")),no_first_elements),collapse="_"))
+}
+```
+
+```{r output dir, echo=FALSE}
+OUTPUT_DIR=paste(".",project_name,sep="/")
+dir.create(file.path(OUTPUT_DIR))
+```
+
+## __Palmitoylomics data__
+The contents of the file `CC_Kbo_135-M986-B04-B08-O536-P11898-1-CarboxyNorm-SunInd-20211104.xlsx` are shown in the table below for reference:
+
+```{r loading palmitoylomics dataset, include=TRUE, echo=FALSE, eval=TRUE}
+# load palmitoylomics data excel sheet and clean columns names (potentially modify naming options)
+file="CC_Kbo_135-M986-B04-B08-O536-P11898-1-CarboxyNorm-SunInd-20211104.xlsx"
+fulldata_raw <- readxl::read_excel(file.path("input",file), 
+                               col_types = "guess",
+                               .name_repair = janitor::make_clean_names)
+
+# removing empty columns
+fulldata <- fulldata_raw %>%
+  janitor::remove_empty(., which = c("rows", "cols"), quiet = FALSE)
+
+create_dt(fulldata)
+```
+
+
+## __Correlation with factors__
+  
+  \
+
+#### __SwissPalm data__
+
+* Data was obtained from [SwissPalm Proteins](https://swisspalm.org/proteins)	Release 4 (2022-09-03). All proteins in the database for Homo sapiens was downloaded.
+
+
+__The SwissPalm information is included here:__
+```{r loading SwissPalm data new, eval=TRUE, echo=FALSE, include=TRUE}
+# load SwissPalm data excel sheet and clean columns names (potentially modify naming options)
+newfile="query_result_SwissPalm_Dataset1_allproteins_Hsapiens.xlsx"
+SWISSPALM_DIR="resources/SwissPalm/"
+newSPdata <- readxl::read_excel(file.path(SWISSPALM_DIR, newfile), 
+                               col_types = "guess",
+                               .name_repair = janitor::make_clean_names)
+
+create_dt(newSPdata)
+```
+
+
+
+```{r remove nas, echo=FALSE}
+fulldata<-na.omit(fulldata)
+```
+
+#### __Factors__
+
+The following factors were evaluated:
+
+  1. molecular weight
+  2. number of peptides
+  3. number of unique peptides
+  4. number of known palmitoylated cysteine sites (info from SwissPalm)
+  5. number of cysteines in the protein's main isoform (info from SwissPalm)
+
+Note that the below printed accessions were not found in SwissPalm.
+
+```{r factors data, echo=FALSE}
+# factors:
+#   1. MW  
+#   2. # of peptides
+#   3. # of unique peptides
+#   4. # of known palmitoylated cysteine sites (info from SwissPalm)
+# + 5. # of Cysteines in main isoform (info from SwissPalm)
+
+#function to lookup information in SPdata
+prefixfy<-function(x){
+  return(strsplit(x,"-")[[1]][1])
+}
+SP_palmitoylated_sites<-rep(NA,length(fulldata$accession))
+SP_cysteines<-rep(NA,length(fulldata$accession))
+
+SP_predicted<-rep(NA,length(fulldata$accession))
+
+for (i in c(1:length(fulldata$accession))){
+  acc=prefixfy(fulldata$accession[i])
+  if (acc %in% newSPdata$uni_prot_ac){
+    SP_palmitoylated_sites[i]<-newSPdata$number_of_sites[which(newSPdata$uni_prot_ac==acc)]
+    SP_cysteines[i]<-newSPdata$max_number_of_cysteines[which(newSPdata$uni_prot_ac==acc)]
+    SP_predicted[i]<-newSPdata$predicted_to_be_s_palmitoylated[which(newSPdata$uni_prot_ac==acc)]
+  } else {
+    print(acc)
+  }
+}
+
+correlation_factors<-data.frame(mw_k_da=fulldata$mw_k_da,number_peptides=fulldata$number_peptides,number_unique_peptides=fulldata$number_unique_peptides,SP_palmitoylated_sites=SP_palmitoylated_sites,SP_cysteines=SP_cysteines, stringsAsFactors = FALSE)
+row.names(correlation_factors)<-fulldata$accession
+names(SP_predicted)<-fulldata$accession
+
+create_dt(correlation_factors)
+```
+
+* Of the `r length(unique(rownames(correlation_factors)))` proteins in the table, which had data in SwissPalm, __`r length(which(correlation_factors$SP_palmitoylated_sites>0))` proteins have at least 1 site annotated as palmitoylated.__
+
+### __Correlating the abundance ratios with the factors__
+
+```{r abundance ratios, echo=FALSE}
+
+abundance_ratios<-fulldata[grep("abundance_ratio_log2",names(fulldata))]
+names(abundance_ratios)=gsub("abundance_ratio_log2_","",names(abundance_ratios))
+
+abundance_pvalues<-fulldata[grep("abundance_ratio_p_value",names(fulldata))]
+names(abundance_pvalues)=gsub("abundance_ratio_p_value_","",names(abundance_pvalues))
+```
+
+#### __Abundance ratio (WT-TREAT-UNST) / (WT-UNT-UNST) correlation with factors __
+
+
+ * Only pearson correlation coefficients are included in the plots.
+
+
+```{r WT treat vs untreat correlation with factors, echo=FALSE}
+library(tidyverse)
+library(gridExtra)
+
+correlation_data<-cbind(correlation_factors,fulldata$abundance_ratio_log2_wt_treat_unst_wt_unt_unst)
+#dim(correlation_data)
+reduced_correlation_data<-na.omit(correlation_data)
+#dim(reduced_correlation_data)
+
+#correlation results table (rows are samples while columns are factors to correlate with)
+pears_abundance_ratio_correlation_results<-vector(length=5)
+names(pears_abundance_ratio_correlation_results)<-names(reduced_correlation_data)[c(1:5)]
+names(reduced_correlation_data)[6]<-"abundance_ratio"
+plots<-lapply(names(reduced_correlation_data)[c(1:5)],function(column){
+  pears_abundance_ratio_correlation_results[column]<-cor(reduced_correlation_data[column],reduced_correlation_data["abundance_ratio"],method="pearson")
+  ggplot(reduced_correlation_data,aes_string(x=column,y="abundance_ratio")) +
+    geom_point(alpha=0.5) +
+    geom_smooth(method=lm) +
+    ggtitle(paste("pearson_r=",round(as.numeric(pears_abundance_ratio_correlation_results[column]),2),sep="")) +
+    theme_bw()
+}) 
+#%>%
+#  do.call(grid.arrange,.)
+p<-grid.arrange(grobs=plots)
+plotf<-"wt_treat_vs_untreat_correlation_with_factors.pdf"
+ggsave(file.path(OUTPUT_DIR,plotf), p) 
+```
+
+#### __Abundance ratios and SP palmitoylated sites correlations__
+
+Plots of the individual proteins abundance ratio with respect to SwissPalm palmitoylated sites for the requested comparisons are shown below. 
+
+```{r  correlation palmitoylated sites, echo=FALSE}
+#comparisons of interest
+comparisons<-c("wt_treat_unst_wt_unt_unst","wt_treat_unst_wt_treat_pma","wt_treat_unst_wt_treat_abs","ko_treat_unst_wt_treat_unst","wt_treat_pma_ko_treat_pma","ko_treat_abs_wt_treat_abs")
+
+#correlation results table (rows are samples while columns are factors to correlate with (only SP palmitoylation sites))
+pears_abundance_ratio_correlation_results<-vector(length=length(comparisons))
+names(pears_abundance_ratio_correlation_results)<-comparisons
+SP_palmitoylated_sites<-correlation_data$SP_palmitoylated_sites
+
+plots<-lapply(comparisons,function(comp){
+  correlation_data<-cbind(SP_palmitoylated_sites,abundance_ratios[comp])
+  reduced_correlation_data<-na.omit(correlation_data)
+  pears_abundance_ratio_correlation_results[comp]<-cor(reduced_correlation_data[,1],reduced_correlation_data[,2],method="pearson")
+  ggplot(reduced_correlation_data,aes_string(x='SP_palmitoylated_sites',y=comp)) +
+    geom_point(alpha=0.5) +
+    geom_smooth(method=lm) +
+    labs(y="abundance_ratio", 
+         title=comp,
+         subtitle=paste("pearson_r=",round(as.numeric(pears_abundance_ratio_correlation_results[comp]),2),sep="")) +
+    theme(plot.subtitle=element_text(size=9, hjust=0.5, face="italic", color="black")) +
+    theme_bw()
+}) 
+#%>%
+#  do.call(grid.arrange,.)
+
+p<-grid.arrange(grobs=plots)
+plotf<-"correlation_with_swisspalm_palmitoylation_sites.pdf"
+ggsave(file.path(OUTPUT_DIR,plotf), p) 
+```
+
+
+
+#### __All abundance ratios' correlation with factors__
+
+The heatmap below shows the pearson correlation coefficents (*r*) of each comparison's (rows) log2 abundance ratio with each factor (columns). I included the significance of the p-values from using `R`'s `cor.test`. 
+
+```{r Ratios correlation with factors, echo=FALSE,fig.height=5.5,fig.width=7.5, ,out.width='100%'}
+library(pheatmap)
+
+correlation_data<-cbind(correlation_factors,abundance_ratios)
+reduced_correlation_data<-na.omit(correlation_data)
+
+correlation_results<-matrix(nrow = dim(abundance_ratios)[2], ncol = 5)
+correlation_display<-matrix(nrow = dim(abundance_ratios)[2], ncol = 5)
+for (i in c(1:5)){
+  for (j in c(6:dim(reduced_correlation_data)[2])){
+  res<-cor.test(reduced_correlation_data[,i],reduced_correlation_data[,j],method="pearson")
+  correlation_results[j-5,i]<-unname(res$estimate)
+  if (res$p.value <0.001){
+    sig="***"
+  }else if(res$p.value <0.01){
+    sig="**"
+  }else if(res$p.value <0.05){
+    sig="*"
+  }else{
+    sig="ns"
+  }
+  correlation_display[j-5,i]<-paste0(round(unname(res$estimate),2)," ",sig)
+  }
+}
+colnames(correlation_results)<-colnames(reduced_correlation_data)[c(1:5)]
+rownames(correlation_results)<-colnames(reduced_correlation_data)[-c(1:5)]
+colnames(correlation_display)<-colnames(reduced_correlation_data)[c(1:5)]
+rownames(correlation_display)<-colnames(reduced_correlation_data)[-c(1:5)]
+
+
+nclusters=2
+colour_plot<-hcl.colors(nclusters, palette = "zissou1", alpha = NULL, rev = TRUE, fixup = TRUE)
+annot_col=colour_plot
+names(annot_col)<-c("Positive","Negative/Zero")
+annotation_colour<-list(SP_Sites_Correlation=c(annot_col))
+hc <- hclust(dist(correlation_results))
+newids<-vector(length=length(cutree(hc,k=2)))
+newids[which(cutree(hc,k=2)==1)]=2
+newids[which(cutree(hc,k=2)==2)]=1
+#clustIds<-paste0("C",cutree(hc,k=2))
+clustIds<-paste0("C",newids)
+clustIds[which(clustIds=='C1')]<-"Positive"
+clustIds[which(clustIds=='C2')]<-"Negative/Zero"
+cluster_ids<-data.frame(SP_Sites_Correlation=clustIds)
+rownames(cluster_ids)<-rownames(correlation_results)
+res <- pheatmap(correlation_results, 
+                cutree_rows = nclusters,
+                cluster_rows = hc,
+                cluster_cols = FALSE,
+                annotation_row = cluster_ids,
+                annotation_colors = annotation_colour,
+                angle_col = 90,
+                display_numbers = correlation_display)
+
+plotf<-"heatmap_abundance_ratio_correlation_with_factors.pdf"
+ggsave(file.path(OUTPUT_DIR,plotf), res)
+```
+
+
+## __Criteria for considering a protein palmitoylated__
+
+### __Range of p-values and log2 Abundance Ratios__
+
+Volcano plots of the relationship between p-values and log2 Abundance Ratio were plotted to determine thresholds for considering a protein palmitoylated.
+
+```{r volcano plots for selecting thresholds, echo = FALSE,fig.height=18,fig.width=10, out.width = "\\textwidth*1.1"}
+
+
+plots<-list()
+plots<-lapply(names(abundance_ratios),function(n){
+  abundance_ratio_log2<-abundance_ratios[n]
+  p_value<-abundance_pvalues[n]
+  abundance_ratio_data<-data.frame(abundance_ratio_log2=abundance_ratio_log2,p_value=p_value,stringsAsFactors = FALSE)
+  names(abundance_ratio_data)<-c("abundance_ratio_log2","p_value")
+  p<-ggplot(data=abundance_ratio_data, aes(x=abundance_ratio_log2, y=-log10(p_value))) +
+    geom_point(size=0.6) + 
+    labs(title=n) +
+    scale_x_continuous(limits=c(-2,2)) +
+#    scale_y_continuous(limits=c(-0.2,3)) +
+    geom_hline(yintercept=0,lty=1) +    
+    geom_hline(yintercept=-log10(0.05), col="darkgrey",lty=3) +
+    geom_vline(xintercept=log2(1), col="black",lty=1) +
+    geom_vline(xintercept=c(log2(1/1.2),log2(1.2)), col="orange",lty=3) +
+    geom_vline(xintercept=c(log2(1/1.5),log2(1.5)), col="red",lty=3) +
+    theme_minimal()
+    p
+})
+
+plots[[1]]<-plots[[1]]+ 
+  geom_text(x=log2(1.5),y=-0.1,label="AR=1.5",show.legend = FALSE,col="red", hjust = 0,size=3) +
+  geom_text(x=log2(1.2),y=-0.1,label="AR=1.2",show.legend = FALSE,col="orange", hjust = 1,size=3) +
+  geom_text(x=-1.5,y=-log10(0.05),label="-log10(0.05)",show.legend = FALSE,col="darkgrey",size=3)
+
+#do.call(grid.arrange,c(plots,ncol=3))
+p<-do.call(grid.arrange,c(grobs=plots,ncol=3))
+plotf<-"volcanoplots_log2abundanceratios_vs_pvalues.pdf"
+ggsave(file.path(OUTPUT_DIR,plotf), p,height=18,width=10) 
+
+```
+
+### __Looking at a few proteins with high abundance ratios but large p-values__
+
+* From looking at the cases below, it seems that there might be quite some variation between the replicates but there is mostly a clear difference between the two 'conditions' being compared. P-values higher than 0.76 do show more overlap between the two conditions being compared.
+
+```{r check a few proteins, echo=FALSE,fig.height=10,fig.width=8, out.width = "\\textwidth*1.1"}
+#convert the data table into a 'flat' version
+  # table dimension (rows) = number of proteins = dim(fulldata)[1] * number of comparisons = dim(abundance_ratios)[2]
+  # table dimension (cols) = accession, log2AR, p-value, comparison = 4
+
+Accession<-vector(length=dim(fulldata)[1]*dim(abundance_ratios)[2])
+Symbol<-vector(length=dim(fulldata)[1]*dim(abundance_ratios)[2])
+Comparison<-vector(length=dim(fulldata)[1]*dim(abundance_ratios)[2])
+Abundance_ratio_log2<-vector(length=dim(fulldata)[1]*dim(abundance_ratios)[2])
+P_value<-vector(length=dim(fulldata)[1])
+ind=1
+for (i in c(1:dim(fulldata)[1])){
+  acc=fulldata$accession[i]
+  sym=fulldata$gene_symbol[i]
+  for (j in c(1:dim(abundance_ratios)[2])){
+    comparison=names(abundance_ratios)[j]
+    Accession[ind]<-acc
+    Symbol[ind]<-sym
+    Abundance_ratio_log2[ind]<-as.numeric(abundance_ratios[i,j])
+    P_value[ind]<-as.numeric(abundance_pvalues[i,j])
+    Comparison[ind]<-comparison
+    ind=ind+1
+  }
+}
+flat_table<-data.frame(Accession=Accession,Symbol=Symbol,Abundance_ratio_log2=Abundance_ratio_log2,P_value=P_value,Comparison=Comparison)
+#sort the table by decreasing abundance ratio and decreasing pvalue
+sorted_flat_table<-flat_table[order(flat_table[,'Abundance_ratio_log2'],flat_table[,'P_value'],decreasing=TRUE),]
+#head(sorted_flat_table[which(sorted_flat_table[,'P_value']>0.7),])
+#plot normalised abundance values for the first 5 entries
+numtoplot=6
+firstfive<-head(sorted_flat_table[which(sorted_flat_table[,'P_value']>0.7),],numtoplot)
+split_comparison<-function(comparison){
+  comp1=paste0(strsplit(comparison,"_")[[1]][c(1:3)],collapse="_")
+  comp2=paste0(strsplit(comparison,"_")[[1]][c(4:6)],collapse="_")
+  return(c(comp1,comp2))
+}
+
+plots2<-list()
+for (i in c(1:numtoplot)){
+  comp<-split_comparison(firstfive[i,]$Comparison)
+  comparisons<-rep(comp,each=2)
+  protind<-which(fulldata$accession==firstfive$Accession[i])
+  abundancesind1<-intersect(grep(comp[1],names(fulldata)),grep('normalized',names(fulldata)))
+  abundancesind2<-intersect(grep(comp[2],names(fulldata)),grep('normalized',names(fulldata)))
+  normalized_abundances<-unlist(fulldata[protind,c(abundancesind1,abundancesind2)])
+  dataplot<-data.frame(symbol=rep(firstfive[i,]$Symbol,4),comparisons=comparisons,samples=names(normalized_abundances),normalized_abundance=unname(unlist(normalized_abundances)))
+  #print(dataplot)
+  plots2[[i]]<-ggplot(data=dataplot,aes(x=comparisons,y=normalized_abundance,col=comparisons)) + 
+    geom_boxplot() + 
+    geom_jitter(alpha = 0.9, width = 0.2, height = 0.2) +
+    theme(axis.title.x=element_blank(),axis.text.x=element_blank()) +
+    labs(title=paste0(firstfive[i,'Symbol']," (",firstfive[i,'Accession'],")"),subtitle = paste0("log2 abundance ratio: ",firstfive[i,'Abundance_ratio_log2'], "    pval: ",round(firstfive[i, 'P_value'],2)))
+}
+
+
+
+p<-do.call(grid.arrange,plots2)
+plotf<-"single_examples_normalized_abundance_log2abundanceratios_vs_pvalues.pdf"
+ggsave(file.path(OUTPUT_DIR,plotf), p,height=10,width=8) 
+
+```
+
+
+
+
+## __Palmitoylomes__
+
+The following thresholds were used to consider a protein as palmitoylated:
+
+```{r palmitoylated thresholds}
+
+AR_thres=1.2
+log2AR_thres=log2(AR_thres)
+pvalue_thres=0.8
+```
+
+The palmitoylated proteins are indicated with 'YES' in the tables below.
+
+* In both WT and KO datasets, the largest palmitoylomes are associated with the Abs stimulated cells, while the PMA stimulated cells have the smallest palmitoylomes. 
+
+
+### __WT__ {.tabset}
+
+There is a large overlap between the three palmitoylomes. They are almost subsets of each other.  
+
+#### __Table__
+
+To obtain the list of genes found in certain subsets, search for the conditions of interest (column palmitoylated conditions). For example,
+
+* 7 genes palmitoylated in WT PMA + WT Abs only -- search for `cond:wt_pma;wt_abs:only`
+* 10 genes palmitoylated in WT PMA only -- search for `cond:wt_pma:only`
+* 1 gene palmitoylated in WT unstimulated and WT PMA only -- search for `cond:wt_unst;wt_pma:only`
+
+```{r wt palmitoylomes, echo=FALSE}
+
+accession<-fulldata$accession
+gene_symbol<-fulldata$gene_symbol
+log2_abundance_ratio_wt_treat_unst_wt_unt_unst<-abundance_ratios[,"wt_treat_unst_wt_unt_unst"]
+log2_abundance_ratio_wt_treat_pma_wt_unt_unst<-abundance_ratios[,"wt_treat_pma_wt_unt_unst"]
+log2_abundance_ratio_wt_treat_abs_wt_unt_unst<-abundance_ratios[,"wt_treat_abs_wt_unt_unst"]
+wt_unst_palmitoylated<-rep("NO",length(accession))
+wt_unst_palmitoylated[which(abundance_ratios[,"wt_treat_unst_wt_unt_unst"]>=log2AR_thres & abundance_pvalues[,"wt_treat_unst_wt_unt_unst"]<pvalue_thres)]<-"YES"
+wt_pma_palmitoylated<-rep("NO",length(accession))
+wt_pma_palmitoylated[which(abundance_ratios[,"wt_treat_pma_wt_unt_unst"]>=log2AR_thres & abundance_pvalues[,"wt_treat_pma_wt_unt_unst"]<pvalue_thres)]<-"YES"
+wt_abs_palmitoylated<-rep("NO",length(accession))
+wt_abs_palmitoylated[which(abundance_ratios[,"wt_treat_abs_wt_unt_unst"]>=log2AR_thres & abundance_pvalues[,"wt_treat_abs_wt_unt_unst"]<pvalue_thres)]<-"YES"
+
+
+  wt_palmitoylome_comparison<-cbind(accession,gene_symbol,log2_abundance_ratio_wt_treat_unst_wt_unt_unst,log2_abundance_ratio_wt_treat_pma_wt_unt_unst,log2_abundance_ratio_wt_treat_abs_wt_unt_unst,wt_unst_palmitoylated,wt_pma_palmitoylated,wt_abs_palmitoylated)
+
+    #specify column with palmitoylated conditions so that Artem can search and download gene list
+  palmitoylated_conditions<-apply(wt_palmitoylome_comparison[,c((ncol(wt_palmitoylome_comparison)-2):ncol(wt_palmitoylome_comparison))],1,function(x){
+    stri=paste(gsub('_palmitoylated','',names(which(x=='YES'))),collapse=';')
+    if(stri!=""){
+      stri=paste('cond',stri,'only',sep=":")
+      return(stri)
+    }else{
+      return("")
+    }
+  })
+  wt_palmitoylome_comparison<-cbind(wt_palmitoylome_comparison,palmitoylated_conditions)
+  
+create_dt(wt_palmitoylome_comparison)
+```
+
+#### __Venn__ {.active}
+
+```{r overlap wt,echo=FALSE,fig.height=6,fig.width=8,out.width='70%'}
+x<-list(
+  WT_unst_palmitoylated =  wt_palmitoylome_comparison$accession[which(wt_palmitoylome_comparison$wt_unst_palmitoylated=='YES')],
+  WT_pma_palmitoylated =  wt_palmitoylome_comparison$accession[which(wt_palmitoylome_comparison$wt_pma_palmitoylated=='YES')],
+  WT_abs_palmitoylated =  wt_palmitoylome_comparison$accession[which(wt_palmitoylome_comparison$wt_abs_palmitoylated=='YES')]
+  )
+library(eulerr)
+plot(euler(x),quantities=TRUE)
+p<-plot(euler(x),quantities=TRUE)
+plotf<-"venn_wt_palmitoylome.pdf"
+ggsave(file.path(OUTPUT_DIR,plotf), p, width = 10, height=9)
+```
+
+### __KO__ {.tabset}
+
+The Abs palmitoylome consists of almost all of the proteins. 
+
+There is less overlap between the KO unstimulated and PMA stimulated palmitoylomes compared to the WT dataset. The KO unstimulated palmitoylome is much smaller than the WT unstimulated palmitoylome.
+
+#### __Table__
+
+To obtain the list of genes found in certain subsets, search for the conditions of interest (in palmitoylated conditions). For example,
+
+* 33 genes palmitoylated in KO PMA + KO Abs only -- search for `cond:ko_pma;ko_abs:only`
+* 1 gene palmitoylated in KO PMA only -- search for `cond:ko_pma:only`
+
+```{r ko palmitoylomes, echo=FALSE}
+accession<-fulldata$accession
+gene_symbol<-fulldata$gene_symbol
+log2_abundance_ratio_ko_treat_unst_ko_unt_unst<-abundance_ratios[,"ko_treat_unst_ko_unt_unst"]
+log2_abundance_ratio_ko_treat_pma_ko_unt_unst<-abundance_ratios[,"ko_treat_pma_ko_unt_unst"]
+log2_abundance_ratio_ko_treat_abs_ko_unt_unst<-abundance_ratios[,"ko_treat_abs_ko_unt_unst"]
+
+ko_unst_palmitoylated<-rep("NO",length(accession))
+ko_unst_palmitoylated[which(abundance_ratios[,"ko_treat_unst_ko_unt_unst"]>=log2AR_thres & abundance_pvalues[,"ko_treat_unst_ko_unt_unst"]<pvalue_thres)]<-"YES"
+ko_pma_palmitoylated<-rep("NO",length(accession))
+ko_pma_palmitoylated[which(abundance_ratios[,"ko_treat_pma_ko_unt_unst"]>=log2AR_thres & abundance_pvalues[,"ko_treat_pma_ko_unt_unst"]<pvalue_thres)]<-"YES"
+ko_abs_palmitoylated<-rep("NO",length(accession))
+ko_abs_palmitoylated[which(abundance_ratios[,"ko_treat_abs_ko_unt_unst"]>=log2AR_thres & abundance_pvalues[,"ko_treat_abs_ko_unt_unst"]<pvalue_thres)]<-"YES"
+
+
+ko_palmitoylome_comparison<-cbind(accession,gene_symbol,log2_abundance_ratio_ko_treat_unst_ko_unt_unst,log2_abundance_ratio_ko_treat_pma_ko_unt_unst,log2_abundance_ratio_ko_treat_abs_ko_unt_unst,ko_unst_palmitoylated,ko_pma_palmitoylated,ko_abs_palmitoylated)
+
+
+    #specify column with palmitoylated conditions so that Artem can search and download gene list
+  palmitoylated_conditions<-apply(ko_palmitoylome_comparison[,c((ncol(ko_palmitoylome_comparison)-2):ncol(ko_palmitoylome_comparison))],1,function(x){
+    stri=paste(gsub('_palmitoylated','',names(which(x=='YES'))),collapse=';')
+    if(stri!=""){
+      stri=paste('cond',stri,'only',sep=":")
+      return(stri)
+    }else{
+      return("")
+    }
+  })
+  ko_palmitoylome_comparison<-cbind(ko_palmitoylome_comparison,palmitoylated_conditions)
+
+create_dt(ko_palmitoylome_comparison)
+```
+
+#### __Venn__ {.active}
+
+```{r overlap ko,echo=FALSE,fig.height=6,fig.width=8,out.width='70%'}
+x<-list(
+  ko_unst_palmitoylated =  ko_palmitoylome_comparison$accession[which(ko_palmitoylome_comparison$ko_unst_palmitoylated=='YES')],
+  ko_pma_palmitoylated =  ko_palmitoylome_comparison$accession[which(ko_palmitoylome_comparison$ko_pma_palmitoylated=='YES')],
+  ko_abs_palmitoylated =  ko_palmitoylome_comparison$accession[which(ko_palmitoylome_comparison$ko_abs_palmitoylated=='YES')]
+)
+library(eulerr)
+plot(euler(x),quantities=TRUE)
+p<-plot(euler(x),quantities=TRUE)
+plotf<-"venn_ko_palmitoylome.pdf"
+ggsave(file.path(OUTPUT_DIR,plotf), p, width = 10, height=9)
+```
+
+*  `r length(which(ko_abs_palmitoylated=='YES'))` out of `r length(ko_abs_palmitoylated)` proteins are palmitoylated in the KO Abs cells.
+
+
+### __Overlap with SwissPalm annotated [all proteins in SwissPalm]__ {.tabset}
+
+
+For the union of all proteins detected as palmitoylated in the full dataset, their overlap with SwissPalm annotated proteins that are predicted or confirmed was assessed.
+
+The overlaps in this section here were calculated by the tool [eulerr](https://cran.r-project.org/web/packages/eulerr/index.html "Larsson J. (2021). eulerr: Area-Proportional Euler and Venn Diagrams with Ellipses. R package version 6.1.1") used for plotting the Venn diagrams
+
+
+#### __Venn__
+
+```{r overlap SP full,echo=FALSE,fig.height=9,fig.width=11,out.width='85%'}
+All_palmitoylated_pre<-c(
+ wt_palmitoylome_comparison$accession[which(wt_palmitoylome_comparison$wt_unst_palmitoylated=='YES')],
+ wt_palmitoylome_comparison$accession[which(wt_palmitoylome_comparison$wt_pma_palmitoylated=='YES')],
+ wt_palmitoylome_comparison$accession[which(wt_palmitoylome_comparison$wt_abs_palmitoylated=='YES')],  
+ ko_palmitoylome_comparison$accession[which(ko_palmitoylome_comparison$ko_unst_palmitoylated=='YES')],
+ ko_palmitoylome_comparison$accession[which(ko_palmitoylome_comparison$ko_pma_palmitoylated=='YES')],
+ ko_palmitoylome_comparison$accession[which(ko_palmitoylome_comparison$ko_abs_palmitoylated=='YES')]
+)
+All_palmitoylated<-unique(sort(All_palmitoylated_pre))
+
+
+x_full<-list(
+  Union_detected_as_palmitoylated =  All_palmitoylated,
+  all_SwissPalm_palmitoylated = newSPdata$uni_prot_ac[which(newSPdata$number_of_sites>0)],
+  all_SwissPalm_predicted = newSPdata$uni_prot_ac[which(newSPdata$predicted_to_be_s_palmitoylated=='Yes')]
+  )
+library(eulerr)
+plot(euler(x_full),quantities=TRUE)
+p<-plot(euler(x_full),quantities=TRUE)
+plotf<-"venn_swisspalm_palmitoylome_all_sp_proteins.pdf"
+ggsave(file.path(OUTPUT_DIR,plotf), p, width = 10, height=9)
+```
+
+#### __Table: Not palmitoylated but predicted or confirmed in Swiss Palm [all proteins in SwissPalm]__
+
+To obtain the list of genes found in certain subsets, search for the conditions of interest. For example,
+
+* 616 genes not palmitoylated but both SwissPalm confirmed and predicted -- search for `SP_palmitoylated_and_predicted` (not in Venn diagram)
+* 390 genes not palmitoylated but SwissPalm confirmed -- search for `SP_palmitoylated_only`
+* 11,125 genes not palmitoylated but SwissPalm predicted -- search for `SP_predicted_only`
+
+```{r not palmitoylated but in SP all, echo=FALSE}
+SP_union<-union(x_full$all_SwissPalm_palmitoylated,x_full$all_SwissPalm_predicted)
+notPalm_in_SP<- SP_union[!(SP_union %in% All_palmitoylated)]
+
+SP_gene_names<-newSPdata$gene_names
+names(SP_gene_names)<-newSPdata$uni_prot_ac
+notPalm_in_SP_symbol<-SP_gene_names[notPalm_in_SP]
+
+SP_union_genes<-SP_gene_names[SP_union]
+  
+notPalm_in_SP_subsets<-unlist(lapply(notPalm_in_SP,function(y){
+  if(y %in% x_full$all_SwissPalm_palmitoylated){
+    if(y %in% x_full$all_SwissPalm_predicted){
+      return("SP_palmitoylated_and_predicted")
+    }else{
+      return("SP_palmitoylated_only")
+    }
+  }else if(y %in% x_full$all_SwissPalm_predicted){
+    return("SP_predicted_only")
+  }
+}))
+
+notPalm_in_SP_outtable<-data.frame(accession=notPalm_in_SP,gene_symbol=notPalm_in_SP_symbol,SP_subset=notPalm_in_SP_subsets)
+create_dt(notPalm_in_SP_outtable)
+```
+
+
+## __Palmitoylomes enrichment analyses__ 
+
+The enrichment analyses in this report was performed using hypergeometric tests wtih [hypeR](https://doi.org/10.1093/bioinformatics/btz700 "Federico, A. & Monti, S. hypeR: an R package for geneset enrichment workflows. Bioinformatics 36, 1307–1308 (2020)")
+
+### Genesets for the enrichment analysis
+
+Detailed information on the genesets used in this analysis are found at [Molecular Signatures Database Collections]( http://www.gsea-msigdb.org/gsea/msigdb/collections.jsp) 
+
+```{r genesets}
+library(hypeR)
+#sets to use:
+KEGGPATH <- msigdb_gsets("Homo sapiens", "C2","CP:KEGG")
+GO_CELLCOMP <- msigdb_gsets("Homo sapiens", "C5","GO:CC")
+```
+
+
+### __A. 'Significant' genes: Palmitoylated proteins__
+
+Proteins fulfilling the criteria for being considered palmitoylated.
+
+```{r signatures palmitoylome}
+
+signatures<-list(
+  WT_unst_palmitoylated =  wt_palmitoylome_comparison$gene_symbol[which(wt_palmitoylome_comparison$wt_unst_palmitoylated=='YES')],
+  WT_pma_palmitoylated =  wt_palmitoylome_comparison$gene_symbol[which(wt_palmitoylome_comparison$wt_pma_palmitoylated=='YES')],
+  WT_abs_palmitoylated =  wt_palmitoylome_comparison$gene_symbol[which(wt_palmitoylome_comparison$wt_abs_palmitoylated=='YES')],
+  ko_unst_palmitoylated =  ko_palmitoylome_comparison$gene_symbol[which(ko_palmitoylome_comparison$ko_unst_palmitoylated=='YES')],
+  ko_pma_palmitoylated =  ko_palmitoylome_comparison$gene_symbol[which(ko_palmitoylome_comparison$ko_pma_palmitoylated=='YES')],
+  ko_abs_palmitoylated =  ko_palmitoylome_comparison$gene_symbol[which(ko_palmitoylome_comparison$ko_abs_palmitoylated=='YES')]
+)
+
+
+```
+
+
+#### __Pathway enrichment analysis (Proteins expressed in NK cells background)__ {.tabset}
+
+For each pathway enrichment analysis, the hypergeometric test requires information of the background set of proteins that was measured in the experiment. 
+
+The list of genes proteins expressed in NK cells (9201 proteins), taken from the Human Protein Atlas [NK-cells](https://www.proteinatlas.org/humanproteome/immune+cell/nk-cells), which is based on transcriptome analysis, was provided as the background.
+
+__The data downloaded from the human protein atlas can be found here:__
+```{r loading NK proteins list, eval=TRUE, echo=FALSE, include=TRUE}
+file="ProteinAtlasNKExpressed.xlsx"
+NKexpresseddata <- readxl::read_excel(file.path("resources",file), 
+                               col_types = "guess",
+                               .name_repair = janitor::make_clean_names)
+
+create_dt(NKexpresseddata)
+NKexpressed<-NKexpresseddata$gene
+```
+
+
+##### Canonical pathways: KEGG 
+```{r kegg lbckgd}
+dbname="KEGGPATH"
+mhyp <- hypeR(signatures, KEGGPATH, test="hypergeometric", background=NKexpressed)
+p<-hyp_dots(mhyp, merge=TRUE, fdr=0.05, title="KEGG Pathways")+scale_x_discrete(limits=names(mhyp$as.list()))
+p
+```
+
+```{r kegg_xls lbckgd, echo=FALSE}
+dir.create(file.path(OUTPUT_DIR,"enrichment_results_palmitoylome"))
+file_base=file.path(OUTPUT_DIR,"enrichment_results_palmitoylome",paste('palmitoylome_nkexpressed_background', dbname,sep="_"))
+ggsave(paste(file_base,"hypeR.pdf",sep="_"), p)
+hyp_to_excel(mhyp, file_path=paste(file_base,"hypeR.xlsx",sep="_"))
+```
+
+##### Gene ontology: Cellular  Component
+```{r gobp cc lbckgd, echo=FALSE}
+dbname="GO_CELLCOMP"
+mhyp <- hypeR(signatures, GO_CELLCOMP, test="hypergeometric", background=NKexpressed)
+p<-hyp_dots(mhyp, merge=TRUE, fdr=0.05, title="GO Cellular  Component")+scale_x_discrete(limits=names(mhyp$as.list()))
+p
+```
+
+```{r gobp_xls cc lbckgd, echo=FALSE}
+file_base=file.path(OUTPUT_DIR,"enrichment_results_palmitoylome",paste('palmitoylome_nkexpressed_background', dbname,sep="_"))
+ggsave(paste(file_base,"hypeR.pdf",sep="_"), p)
+hyp_to_excel(mhyp, file_path=paste(file_base,"hypeR.xlsx",sep="_"))
+```
+
+
+## __Palmitoylomes that require ZDHHC17__
+
+In this section WT palmitoylated proteins that have reduced palmitoylation in the corresponding KO samples were identified.
+
+KW_Ratio = KO ratio divided by the WT ratio 
+
+ * KW_Ratio <= 1/1.5 (highly reduced palmitoylation)
+ * KW_Ratio <= 1/1.2 (reduced palmitoylation)
+
+```{r ratio thresholds,echo=FALSE}
+higly_reduced_palmitoylated_ratio=1/1.5
+reduced_palmitoylated_ratio=1/1.2
+```
+
+
+### __1. Unstimulated palmitoylome with reduced palmitoylation in KO__ 
+
+```{r ko comparison data for wt palmitoylome, echo=FALSE}
+wt_unstim_palmitoylome_indices<-fulldata$accession %in% wt_palmitoylome_comparison$accession[which(wt_unst_palmitoylated=='YES')]
+Accession<-fulldata$accession[wt_unstim_palmitoylome_indices]
+wt_treat_unst_vs_unt_unst_log2AbundanceRatio<-as.numeric(fulldata$abundance_ratio_log2_wt_treat_unst_wt_unt_unst[wt_unstim_palmitoylome_indices])
+ko_treat_unst_vs_unt_unst_log2AbundanceRatio<-as.numeric(fulldata$abundance_ratio_log2_ko_treat_unst_ko_unt_unst[wt_unstim_palmitoylome_indices])
+wt_treat_unst_vs_unt_unst_AbundanceRatio<-2^wt_treat_unst_vs_unt_unst_log2AbundanceRatio
+ko_treat_unst_vs_unt_unst_AbundanceRatio<-2^ko_treat_unst_vs_unt_unst_log2AbundanceRatio
+ko_vs_wt_ratio_of_ratios<-ko_treat_unst_vs_unt_unst_AbundanceRatio/wt_treat_unst_vs_unt_unst_AbundanceRatio
+Symbol<-fulldata$gene_symbol[wt_unstim_palmitoylome_indices]
+
+ko_unstim_ratios_comparison<-data.frame(Accession=Accession,wt_treat_unst_vs_unt_unst_log2AbundanceRatio=wt_treat_unst_vs_unt_unst_log2AbundanceRatio,ko_treat_unst_vs_unt_unst_log2AbundanceRatio=ko_treat_unst_vs_unt_unst_log2AbundanceRatio,wt_treat_unst_vs_unt_unst_AbundanceRatio=wt_treat_unst_vs_unt_unst_AbundanceRatio,ko_treat_unst_vs_unt_unst_AbundanceRatio=ko_treat_unst_vs_unt_unst_AbundanceRatio,ko_vs_wt_ratio_of_ratios=ko_vs_wt_ratio_of_ratios,Symbol=Symbol,stringsAsFactors = FALSE)
+
+```
+
+#### __Plot__{.tabset}
+
+A plot comparing abundance ratio levels of KO unstimulated to abundance ratio levels of WT unstimulated for proteins considered as palmitoylated in  WT unstimulated.
+
+```{r dot ko vs wt,include=FALSE, fig.height=12,fig.width=9, out.width = "\\textwidth*0.7"}
+library(ggrepel)
+library(plotly)
+
+#different colours for reduced palmitoylation
+ko_unstim_ratios_comparison$palmitoylation <-"SAME"
+ko_unstim_ratios_comparison$palmitoylation[ko_unstim_ratios_comparison$ko_vs_wt_ratio_of_ratios <= reduced_palmitoylated_ratio] <- "DECREASED"
+ko_unstim_ratios_comparison$palmitoylation[ko_unstim_ratios_comparison$ko_vs_wt_ratio_of_ratios <= higly_reduced_palmitoylated_ratio] <- "HIGHLY_DECREASED"
+mycolors <- c("black", "skyblue", "blue")
+names(mycolors) <- c("SAME", "DECREASED", "HIGHLY_DECREASED")
+
+# Create a new column "palmlabel", that will contain the name of top genes differentially expressed (NA in case they are not)
+ko_unstim_ratios_comparison$palmitoylationlabel <- NA
+ko_unstim_ratios_comparison$palmitoylationlabel[ko_unstim_ratios_comparison$ko_vs_wt_ratio_of_ratios <= higly_reduced_palmitoylated_ratio*1.05] <- ko_unstim_ratios_comparison$Symbol[ko_unstim_ratios_comparison$ko_vs_wt_ratio_of_ratios <= higly_reduced_palmitoylated_ratio*1.05]
+
+p1<-ggplot(data=ko_unstim_ratios_comparison, aes(x=wt_treat_unst_vs_unt_unst_AbundanceRatio , y=ko_treat_unst_vs_unt_unst_AbundanceRatio, col=palmitoylation,label=palmitoylationlabel)) +
+  geom_point() +   
+  scale_x_continuous(limits=c(0,4)) +
+  scale_y_continuous(limits=c(0,4)) +
+  theme_minimal() +
+  geom_text_repel(max.overlaps=25) +
+  scale_colour_manual(values=mycolors)
+
+p2<-ggplot(data=ko_unstim_ratios_comparison, aes(x=wt_treat_unst_vs_unt_unst_AbundanceRatio , y=ko_treat_unst_vs_unt_unst_AbundanceRatio, col=palmitoylation)) +
+  geom_point() +   
+  scale_x_continuous(limits=c(0,4)) +
+  scale_y_continuous(limits=c(0,4)) +
+  theme_minimal() +
+  scale_colour_manual(values=mycolors)
+plots<-list()
+plots[[1]]<-p1
+plots[[2]]<-p2
+p<-grid.arrange(grobs=plots)
+plotf<-"unstimulated_palmitoylome_ko_reduced_palmitoylation.pdf"
+ggsave(file.path(OUTPUT_DIR,plotf),p,height=12, width=9)
+```
+```{r dot ko vs wt log ,include=FALSE, fig.height=12,fig.width=9, out.width = "\\textwidth*0.7"}
+library(ggrepel)
+library(plotly)
+
+p1<-ggplot(data=ko_unstim_ratios_comparison, aes(x=wt_treat_unst_vs_unt_unst_log2AbundanceRatio , y=ko_treat_unst_vs_unt_unst_log2AbundanceRatio, col=palmitoylation,label=palmitoylationlabel)) +
+  geom_point() +   
+  scale_x_continuous(limits=c(-log2(2),log2(4))) +
+  scale_y_continuous(limits=c(-log2(2),log2(4))) +
+  theme_minimal() +
+  scale_colour_manual(values=mycolors) 
+p2<-ggplot(data=ko_unstim_ratios_comparison, aes(x=wt_treat_unst_vs_unt_unst_log2AbundanceRatio , y=ko_treat_unst_vs_unt_unst_log2AbundanceRatio, col=palmitoylation)) +
+  geom_point() +   
+  scale_x_continuous(limits=c(-log2(2),log2(4))) +
+  scale_y_continuous(limits=c(-log2(2),log2(4))) +
+  theme_minimal() +
+  scale_colour_manual(values=mycolors)
+plots<-list()
+plots[[1]]<-p1
+plots[[2]]<-p2
+p<-grid.arrange(grobs=plots)
+plotf<-"unstimulated_palmitoylome_ko_reduced_palmitoylation_log2.pdf"
+ggsave(file.path(OUTPUT_DIR,plotf),p,height=12, width=9)
+```
+
+##### __Abundance Ratio__
+
+```{r dot ko vs wt interactive,echo=FALSE, fig.height=6,fig.width=9}
+p3<-ggplot(data=ko_unstim_ratios_comparison, aes(x=wt_treat_unst_vs_unt_unst_AbundanceRatio , y=ko_treat_unst_vs_unt_unst_AbundanceRatio, col=palmitoylation,text=paste("Gene symbol:",Symbol))) +
+  geom_point() +   
+  scale_x_continuous(limits=c(0,4)) +
+  scale_y_continuous(limits=c(0,4)) +
+  theme_minimal() +
+  scale_colour_manual(values=mycolors)
+ggplotly(p3)
+```
+
+##### __Log2 Abundance Ratio__
+
+```{r dot ko vs wt interactive log,echo=FALSE, fig.height=6,fig.width=9}
+p4<-ggplot(data=ko_unstim_ratios_comparison, aes(x=wt_treat_unst_vs_unt_unst_log2AbundanceRatio , y=ko_treat_unst_vs_unt_unst_log2AbundanceRatio, col=palmitoylation,text=paste("Gene symbol:",Symbol))) +
+  geom_point() +   
+  scale_x_continuous(limits=c(-log2(2),log2(4))) +
+  scale_y_continuous(limits=c(-log2(2),log2(4))) +
+  theme_minimal() +
+  scale_colour_manual(values=mycolors)
+ggplotly(p4)
+```
+
+
+#### __Tables__{.tabset}
+
+##### __Reduced palmitoylation__
+
+```{r list of KO palmitoylated,echo=FALSE}
+
+ko_unstim_palm_outtable<-ko_unstim_ratios_comparison[which(ko_unstim_ratios_comparison$palmitoylation!="SAME"),-(which(names(ko_unstim_ratios_comparison)=="palmitoylationlabel"))]
+create_dt(ko_unstim_palm_outtable)
+
+```
+
+##### __No reduction in palmitoylation__
+
+```{r list of not DE KO palmitoylated,echo=FALSE}
+
+ko_unstim_palm_outtable_not<-ko_unstim_ratios_comparison[which(ko_unstim_ratios_comparison$palmitoylation=="SAME"),-(which(names(ko_unstim_ratios_comparison)=="palmitoylationlabel"))]
+create_dt(ko_unstim_palm_outtable_not)
+
+```
+
+## __Stimulation and palmitoylation__
+
+### __PMA stimulation__
+
+```{r PMA stim palmitoylation, echo=F}
+#Plot1: wt-treat-unst/wt-unt-unst vs wt-treat-pma/wt-treat-unst
+Accession<-fulldata$accession
+Symbol<-fulldata$gene_symbol
+wt_treat_unst_vs_unt_unst_log2AbundanceRatio<-as.numeric(fulldata$abundance_ratio_log2_wt_treat_unst_wt_unt_unst)
+wt_treat_unst_vs_wt_treat_pma_log2AbundanceRatio<-as.numeric(fulldata$abundance_ratio_log2_wt_treat_unst_wt_treat_pma)
+wt_treat_unst_vs_unt_unst_AbundanceRatio<-2^wt_treat_unst_vs_unt_unst_log2AbundanceRatio
+wt_treat_unst_vs_wt_treat_pma_AbundanceRatio<-2^wt_treat_unst_vs_wt_treat_pma_log2AbundanceRatio
+wt_treat_pma_vs_treat_unst_AbundanceRatio<-1/wt_treat_unst_vs_wt_treat_pma_AbundanceRatio
+wt_treat_pma_vs_treat_unst_log2AbundanceRatio<-log2(wt_treat_pma_vs_treat_unst_AbundanceRatio)
+
+wt_pma_ratios_comparison<-data.frame(Accession=Accession,wt_treat_unst_vs_unt_unst_AbundanceRatio=wt_treat_unst_vs_unt_unst_AbundanceRatio,wt_treat_pma_vs_treat_unst_AbundanceRatio=wt_treat_pma_vs_treat_unst_AbundanceRatio,wt_treat_unst_vs_unt_unst_log2AbundanceRatio=wt_treat_unst_vs_unt_unst_log2AbundanceRatio,wt_treat_pma_vs_treat_unst_log2AbundanceRatio=wt_treat_pma_vs_treat_unst_log2AbundanceRatio,Symbol=Symbol,stringsAsFactors = FALSE)
+
+#Plot2: ko-treat-unst/ko-unt-unst vs ko-treat-pma/ko-treat-unst
+Accession<-fulldata$accession
+Symbol<-fulldata$gene_symbol
+ko_treat_unst_vs_unt_unst_log2AbundanceRatio<-as.numeric(fulldata$abundance_ratio_log2_ko_treat_unst_ko_unt_unst)
+ko_treat_unst_vs_ko_treat_pma_log2AbundanceRatio<-as.numeric(fulldata$abundance_ratio_log2_ko_treat_unst_ko_treat_pma)
+ko_treat_unst_vs_unt_unst_AbundanceRatio<-2^ko_treat_unst_vs_unt_unst_log2AbundanceRatio
+ko_treat_unst_vs_ko_treat_pma_AbundanceRatio<-2^ko_treat_unst_vs_ko_treat_pma_log2AbundanceRatio
+ko_treat_pma_vs_treat_unst_AbundanceRatio<-1/ko_treat_unst_vs_ko_treat_pma_AbundanceRatio
+ko_treat_pma_vs_treat_unst_log2AbundanceRatio<-log2(ko_treat_pma_vs_treat_unst_AbundanceRatio)
+
+ko_pma_ratios_comparison<-data.frame(Accession=Accession,ko_treat_unst_vs_unt_unst_AbundanceRatio=ko_treat_unst_vs_unt_unst_AbundanceRatio,ko_treat_pma_vs_treat_unst_AbundanceRatio=ko_treat_pma_vs_treat_unst_AbundanceRatio,ko_treat_unst_vs_unt_unst_log2AbundanceRatio=ko_treat_unst_vs_unt_unst_log2AbundanceRatio,ko_treat_pma_vs_treat_unst_log2AbundanceRatio=ko_treat_pma_vs_treat_unst_log2AbundanceRatio,Symbol=Symbol,stringsAsFactors = FALSE)
+```
+
+#### __WT__
+
+```{r plot1, echo=F}
+library(ggplot2)
+library(plotly)
+library(ggrepel)
+p1<-ggplot(data=wt_pma_ratios_comparison, aes(x=wt_treat_pma_vs_treat_unst_log2AbundanceRatio , y=wt_treat_unst_vs_unt_unst_log2AbundanceRatio,label=Symbol)) +
+  geom_point() +   
+  #scale_x_continuous(limits=c(0,4)) +
+  #scale_y_continuous(limits=c(0,4)) +
+  theme_minimal() +
+  geom_text_repel(max.overlaps=25) + 
+  geom_vline(xintercept=0,lty=2) + 
+  geom_hline(yintercept=0,lty=2)
+#+scale_colour_manual(values=mycolors)
+ggplotly(p1)
+```
+
+#### __KO__
+
+```{r plot2,echo=F}
+p2<-ggplot(data=ko_pma_ratios_comparison, aes(x=ko_treat_pma_vs_treat_unst_log2AbundanceRatio , y=ko_treat_unst_vs_unt_unst_log2AbundanceRatio,label=Symbol)) +
+  geom_point() +   
+  #scale_x_continuous(limits=c(0,4)) +
+  #scale_y_continuous(limits=c(0,4)) +
+  theme_minimal() +
+  geom_text_repel(max.overlaps=25) + 
+  geom_vline(xintercept=0,lty=2) + 
+  geom_hline(yintercept=0,lty=2)
+#+scale_colour_manual(values=mycolors)
+ggplotly(p2)
+```
+
+### __Abs stimulation__
+
+```{r Abs stim palmitoylation, echo=F}
+#Plot3: wt-treat-unst/wt-unt-unst vs wt-treat-abs/wt-treat-unst
+
+wt_treat_unst_vs_wt_treat_abs_log2AbundanceRatio<-as.numeric(fulldata$abundance_ratio_log2_wt_treat_unst_wt_treat_abs)
+wt_treat_unst_vs_wt_treat_abs_AbundanceRatio<-2^wt_treat_unst_vs_wt_treat_abs_log2AbundanceRatio
+wt_treat_abs_vs_treat_unst_AbundanceRatio<-1/wt_treat_unst_vs_wt_treat_abs_AbundanceRatio
+wt_treat_abs_vs_treat_unst_log2AbundanceRatio<-log2(wt_treat_abs_vs_treat_unst_AbundanceRatio)
+
+wt_abs_ratios_comparison<-data.frame(Accession=Accession,wt_treat_unst_vs_unt_unst_AbundanceRatio=wt_treat_unst_vs_unt_unst_AbundanceRatio,wt_treat_abs_vs_treat_unst_AbundanceRatio=wt_treat_abs_vs_treat_unst_AbundanceRatio,wt_treat_unst_vs_unt_unst_log2AbundanceRatio=wt_treat_unst_vs_unt_unst_log2AbundanceRatio,wt_treat_abs_vs_treat_unst_log2AbundanceRatio=wt_treat_abs_vs_treat_unst_log2AbundanceRatio,Symbol=Symbol,stringsAsFactors = FALSE)
+
+#Plot4: ko-treat-unst/ko-unt-unst vs ko-treat-abs/ko-treat-unst
+ko_treat_abs_vs_unt_unst_log2AbundanceRatio<-as.numeric(fulldata$abundance_ratio_log2_ko_treat_abs_ko_unt_unst)
+ko_treat_abs_vs_unt_unst_AbundanceRatio<-2^ko_treat_abs_vs_unt_unst_log2AbundanceRatio
+ko_treat_abs_vs_treat_unst_AbundanceRatio<-ko_treat_abs_vs_unt_unst_AbundanceRatio/ko_treat_unst_vs_unt_unst_AbundanceRatio
+ko_treat_abs_vs_treat_unst_log2AbundanceRatio<-log2(ko_treat_abs_vs_treat_unst_AbundanceRatio)
+
+ko_abs_ratios_comparison<-data.frame(Accession=Accession,ko_treat_unst_vs_unt_unst_AbundanceRatio=ko_treat_unst_vs_unt_unst_AbundanceRatio,ko_treat_abs_vs_treat_unst_AbundanceRatio=ko_treat_abs_vs_treat_unst_AbundanceRatio,ko_treat_unst_vs_unt_unst_log2AbundanceRatio=ko_treat_unst_vs_unt_unst_log2AbundanceRatio,ko_treat_abs_vs_treat_unst_log2AbundanceRatio=ko_treat_abs_vs_treat_unst_log2AbundanceRatio,Symbol=Symbol,stringsAsFactors = FALSE)
+```
+
+#### __WT__
+
+```{r plot3,echo=F}
+p3<-ggplot(data=wt_abs_ratios_comparison, aes(x=wt_treat_abs_vs_treat_unst_log2AbundanceRatio , y=wt_treat_unst_vs_unt_unst_log2AbundanceRatio,label=Symbol)) +
+  geom_point() +   
+  #scale_x_continuous(limits=c(0,4)) +
+  #scale_y_continuous(limits=c(0,4)) +
+  theme_minimal() +
+  geom_text_repel(max.overlaps=25) + 
+  geom_vline(xintercept=0,lty=2) + 
+  geom_hline(yintercept=0,lty=2)
+#+scale_colour_manual(values=mycolors)
+ggplotly(p3)
+```
+
+#### __KO__
+
+```{r plot4,echo=F}
+p4<-ggplot(data=ko_abs_ratios_comparison, aes(x=ko_treat_abs_vs_treat_unst_log2AbundanceRatio , y=ko_treat_unst_vs_unt_unst_log2AbundanceRatio,label=Symbol)) +
+  geom_point() +   
+  #scale_x_continuous(limits=c(0,4)) +
+  #scale_y_continuous(limits=c(0,4)) +
+  theme_minimal() +
+  geom_text_repel(max.overlaps=25) + 
+  geom_vline(xintercept=0,lty=2) + 
+  geom_hline(yintercept=0,lty=2)
+#+scale_colour_manual(values=mycolors)
+ggplotly(p4)
+```
+
+### __Combined plots for comparison__
+
+```{r combined stim plots, echo=F,fig.heigth=40,fig.width=12,out.width="150%",out.height="600%"}
+library(gridExtra)
+plots<-list()
+plots[[1]]<-p1
+plots[[2]]<-p2
+plots[[3]]<-p3
+plots[[4]]<-p4
+p<-grid.arrange(grobs=plots)
+plotf<-"stimulated_palmitoylome_wt_ko_comparisons.pdf"
+ggsave(file.path(OUTPUT_DIR,plotf),p,height=15, width=18) 
+```
+
+
+## __Methods write up__
+
+Proteins were considered palmitoylated when the abundance ratio with respect to 17-ODYA-untreated samples of the same genotype (either wild-type or ZDHHC17 knock-out) was greater than 1.2 and the associated p-value was smaller than 0.8.  Confirmed or predicted palmitoylated human proteins in SwissPalm ([Blanc et  al., 2015](https://doi.org/10.12688/f1000research.6464.1 "Blanc M, David F, Abrami L et al. SwissPalm: Protein Palmitoylation database. F1000Research 2015, 4:261")) was obtained from (https://swisspalm.org/proteins)	Release 4 (2022-09-03). Enrichment within the genesets Kyoto Encyclopedia of Genes and Genomes (KEGG, [Kanehisa et al., 2022](https://doi.org/10.1093/nar/gkac963 "Minoru Kanehisa, Miho Furumichi, Yoko Sato, Masayuki Kawashima, Mari Ishiguro-Watanabe, KEGG for taxonomy-based analysis of pathways and genomes, Nucleic Acids Research, 2022")) and Gene Ontology (GO) Cellular Component ([Ashburner et al., 2000](https://doi.org/10.1038/75556 "Ashburner, M., Ball, C., Blake, J. et al. Gene Ontology: tool for the unification of biology. Nat Genet 25, 25–29 (2000).") and [The Gene Ontology Consortium 2020](https://doi.org/10.1093/nar/gkaa1113 "The Gene Ontology Consortium, The Gene Ontology resource: enriching a GOld mine, Nucleic Acids Research, Volume 49, Issue D1, 8 January 2021, Pages D325–D334")), which were downloaded from the Molecular Signatures Database ([Liberzon et al., 2011]( https://doi.org/10.1093/bioinformatics/btr260  "Arthur Liberzon, Aravind Subramanian, Reid Pinchback, Helga Thorvaldsdóttir, Pablo Tamayo, Jill P. Mesirov, Molecular signatures database (MSigDB) 3.0, Bioinformatics, Volume 27, Issue 12, 15 June 2011, Pages 1739–1740")),  was determined using hypergeometric tests in hypeR ([Federico and Monti 2020](https://doi.org/10.1093/bioinformatics/btz700 "Anthony Federico, Stefano Monti, hypeR: an R package for geneset enrichment workflows, Bioinformatics, Volume 36, Issue 4, 15 February 2020, Pages 1307–1308")) against a background gene list of genes expressed in NK cells (https://www.proteinatlas.org/humanproteome/immune+cell/nk-cells) taken from the Human Protein Atlas ([Uhlén et al., 2014]( https://doi.org/10.1126/science.1260419 "Uhlén M, Fagerberg L, Hallström BM, Lindskog C, Oksvold P, Mardinoglu A, Sivertsson Å, Kampf C, Sjöstedt E, Asplund A, Olsson I. Tissue-based map of the human proteome. Science. 2015 Jan 23;347(6220):1260419.")). WT palmitoylated proteins that have reduced palmitoylation in the corresponding KO samples were identified using a threshold of less than or equal to 1/1.2 when comparing the KO 17-ODYA-treated vs untreated abundance ratios to the WT 17-ODYA-treated vs untreated ratios.
+
+Venn diagrams were created using the R package eulerr ([Larsson J 2021](https://CRAN.R-project.org/package=eulerr "Larsson J (2021). eulerr: Area-Proportional Euler and Venn Diagrams with Ellipses. R package version 6.1.1")).
+
+
+```{r echo=FALSE}
+# saving session info
+sessionInfo()
+writeLines(capture.output(sessionInfo()), paste0("sessionInfo_", project_name,".txt"))
+
+renv::snapshot()
+#renv::status()
+
+```
+
